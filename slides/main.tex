@@ -1,0 +1,397 @@
+\documentclass[aspectratio=169]{beamer}
+
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian,english]{babel}
+\usepackage{cmap}
+\usepackage{tikz}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{csquotes}
+\usepackage{amssymb,amsfonts,amsmath,mathtools}
+
+\usetikzlibrary{arrows.meta,positioning}
+
+\usecolortheme{beaver}
+\usefonttheme[onlymath]{serif}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}[page number]
+\setbeamertemplate{blocks}[rounded=true,shadow=true]
+\setbeamersize{text margin left=0.55cm,text margin right=0.55cm}
+\setbeamerfont{author}{size=\normalsize}
+\setbeamerfont{institute}{size=\normalsize}
+\setbeamerfont{date}{size=\normalsize}
+
+\newcommand{\model}{Attentive model}
+\newcommand{\contextmodel}{Context model}
+\newcommand{\plsa}{PLSA}
+\newcommand{\bertopic}{BERTopic}
+\newcommand{\Perp}{\operatorname{Perplexity}}
+\newcommand{\normop}{\operatorname{norm}}
+
+\title{Параметризация тематических моделей локального контекста}
+\author{Matvey Karpov}
+\institute{
+    Intelligent Systems Department, MIPT
+}
+\date{\today}
+
+\begin{document}
+\selectlanguage{russian}
+
+\begin{frame}
+    \thispagestyle{empty}
+    \maketitle
+\end{frame}
+
+\begin{frame}{Мотивация}
+    Классические вероятностные тематические модели, включая \plsa{} и LDA,
+    обычно используют представление документа как мешка слов. В такой
+    постановке правдоподобие зависит от агрегированных счетчиков термов, но не
+    от порядка токенов.
+
+    \begin{columns}[T]
+        \begin{column}{0.49\textwidth}
+            \begin{block}{Ограничение}
+                Документы с одинаковыми счетчиками \(n_{dw}\), но различным
+                порядком слов, неразличимы для модели мешка слов.
+            \end{block}
+        \end{column}
+        \begin{column}{0.49\textwidth}
+            \begin{block}{Исследуемая гипотеза}
+                Локальный контекст \(C_i\) позиции \(i\) может быть включен в
+                вероятностную модель и использован при оценивании
+                тематического представления токена.
+            \end{block}
+        \end{column}
+    \end{columns}
+\end{frame}
+
+\begin{frame}{Цель исследования}
+    \small
+    \begin{block}{Проблема}
+        Модель мешка слов использует счетчики термов, но не учитывает порядок
+        токенов и локальные совместные встречаемости слов.
+    \end{block}
+
+    \begin{block}{Цель}
+        Построить вероятностную тематическую модель, где тема позиции \(i\)
+        определяется обучаемо взвешенным локальным контекстом:
+        \[
+            \theta_{ti}=p(t\mid C_i)
+            =\sum_{c\in C_i}\alpha_{ci}\phi_{x_c t},
+            \qquad \alpha_i\in\Delta^{|C_i|-1}.
+        \]
+    \end{block}
+
+    \begin{block}{Нужно}
+        \begin{itemize}
+            \item вывести обновления для \(\Phi\) и \(\alpha\) при симплексных ограничениях;
+            \item сравнить обучаемый контекст с фиксированной \contextmodel{},
+            \plsa{} и \bertopic{} по тестовой перплексии и NPMI.
+        \end{itemize}
+    \end{block}
+\end{frame}
+
+\begin{frame}{Постановка}
+    После предобработки коллекция задается последовательностью токенов
+    \[
+        x_1,\ldots,x_N,\qquad x_i\in W,
+    \]
+    а границы документов задаются индексами
+    \(0=b_0<b_1<\cdots<b_{|D|}=N\).
+
+    \begin{block}{Требуется}
+        Оценить скрытое тематическое представление, в котором каждое слово и
+        каждый локальный контекст сопоставляются распределениям на множестве
+        тем \(T\), а строки \(\Phi\) лежат в единичных симплексах.
+    \end{block}
+
+    \[
+        \Phi=(\phi_{wt})_{w\in W,t\in T},\qquad
+        \sum_{t\in T}\phi_{wt}=1,\qquad
+        p(t)=\sum_{w\in W}p(w)\phi_{wt}.
+    \]
+
+    При \(p(t)>0\) распределение слов в теме восстанавливается по формуле
+    Байеса:
+    \[
+        p(w\mid t)=\frac{p(w)\phi_{wt}}{p(t)}.
+    \]
+\end{frame}
+
+\begin{frame}{Локальный контекст}
+    Для позиции \(i\) локальный контекст \(C_i\) состоит только из индексов
+    того же документа. Это исключает перенос контекстного окна через границы
+    документов. Каждому элементу контекста сопоставляется коэффициент
+    \[
+        \alpha_{ci}\ge 0,\qquad \sum_{c\in C_i}\alpha_{ci}=1.
+    \]
+
+    \begin{columns}[T]
+        \begin{column}{0.53\textwidth}
+            \[
+                \theta_{ti}=p(t\mid C_i)
+                =\sum_{c\in C_i}\alpha_{ci}\phi_{x_c t}.
+            \]
+            \[
+                p(x_i\mid C_i)
+                =p(x_i)\sum_{t\in T}
+                \frac{\phi_{x_i t}\theta_{ti}}{p(t)}.
+            \]
+            \[
+                p_{ti}=p(t\mid x_i,C_i)
+                =\normop_{t\in T}
+                \left(\frac{\phi_{x_i t}\theta_{ti}}{p(t)}\right).
+            \]
+        \end{column}
+        \begin{column}{0.45\textwidth}
+            \centering
+            \begin{tikzpicture}[
+                token/.style={draw,rounded corners,minimum width=0.8cm,minimum height=0.48cm},
+                arr/.style={-Latex,thick}
+            ]
+                \node[token] (a) {\(x_{i-2}\)};
+                \node[token,right=0.15cm of a] (b) {\(x_{i-1}\)};
+                \node[token,right=0.15cm of b,fill=red!10] (c) {\(x_i\)};
+                \node[token,right=0.15cm of c] (d) {\(x_{i+1}\)};
+                \node[token,right=0.15cm of d] (e) {\(x_{i+2}\)};
+                \node[draw,rounded corners,below=1.0cm of c,minimum width=2.8cm,minimum height=0.7cm] (theta) {\(\theta_i=p(t\mid C_i)\)};
+                \node[draw,rounded corners,below=0.8cm of theta,minimum width=2.8cm,minimum height=0.7cm] (post) {\(p_i=p(t\mid x_i,C_i)\)};
+                \draw[arr] (a) -- (theta);
+                \draw[arr] (b) -- (theta);
+                \draw[arr] (d) -- (theta);
+                \draw[arr] (e) -- (theta);
+                \draw[arr] (c) -- (post);
+                \draw[arr] (theta) -- (post);
+            \end{tikzpicture}
+        \end{column}
+    \end{columns}
+\end{frame}
+
+\begin{frame}{Обучаемые коэффициенты контекста}
+    \small
+    Коэффициенты \(\alpha_{ci}\) задают вклад слова \(x_c\) из окна \(C_i\) в
+    тематическое представление центральной позиции:
+    \[
+        \theta_{ti}=\sum_{c\in C_i}\alpha_{ci}\phi_{x_c t},
+        \qquad
+        \alpha_{ci}\ge 0,
+        \qquad
+        \sum_{c\in C_i}\alpha_{ci}=1.
+    \]
+
+    При фиксированных \(\Phi\) и \(p(t)\) локальный блок обучается
+    мультипликативным шагом
+    \[
+        \alpha_{ci}^{(k+1)}
+        =
+        \normop_{c\in C_i}\left(
+        \alpha_{ci}^{(k)}
+        \sum_{t\in T}p_{ti}^{(k)}
+        \frac{\phi_{x_c t}}{\theta_{ti}^{(k)}}
+        \right).
+    \]
+
+    То есть вес соседней позиции растет, если ее тематический профиль
+    \(\phi_{x_c t}\) хорошо согласуется с апостериорными темами центрального
+    токена.
+\end{frame}
+
+\begin{frame}{Итерационная процедура}
+    \small
+    Обучение выполняется как блочная итерационная процедура при симплексных
+    ограничениях на строки \(\Phi\) и веса \(a\).
+
+    \[
+        \theta_{ti}=\sum_{c\in C_i}\alpha^{(t)}_{ci}\phi_{x_c t},
+        \qquad
+        p_{ti}=
+        \normop_{t\in T}\left(\frac{\phi_{x_i t}\theta_{ti}}{p(t)}\right).
+    \]
+
+    \[
+        n_{wt}=\sum_i p_{ti}\mathbf{1}[x_i=w],
+        \qquad
+        N_{wt}=\sum_i
+        \left(\sum_{c\in C_i}\alpha_{ci}\mathbf{1}[x_c=w]\right)
+        \frac{p_{ti}}{\theta_{ti}}.
+    \]
+
+\end{frame}
+
+\begin{frame}{Итерационная процедура: нормировки}
+    \small
+    \begin{block}{Основные нормировки}
+        \[
+        \phi_{wt}\leftarrow
+        \normop_{t\in T}
+        \left(n_{wt}+\phi_{wt}N_{wt}\right),
+        \qquad
+        p(t)\leftarrow \frac{1}{N}\sum_i p_{ti}.
+        \]
+        \[
+        a_{st}\leftarrow
+        \normop_{s}
+        \left(
+        a_{st}\sum_{i:\,s\in S_i}
+        p_{ti}\frac{\phi_{x_{i+s}t}}{\theta_{ti}}
+        \right).
+        \]
+    \end{block}
+
+    
+\end{frame}
+
+\begin{frame}{Стационарные условия}
+    Для локального вклада
+    \[
+        \ell_i(\alpha_i)=\log p(x_i\mid C_i)
+    \]
+    при фиксированных \(\Phi\) и \(p(t)\) производная по коэффициенту
+    контекста имеет вид
+    \[
+        \frac{\partial \ell_i}{\partial \alpha_{ci}}
+        =
+        \sum_{t\in T}p_{ti}\frac{\phi_{x_c t}}{\theta_{ti}},
+        \qquad c\in C_i.
+    \]
+
+    \begin{block}{Стационарное уравнение}
+        \[
+        \alpha_{ci}=
+        \normop_{c\in C_i}\left(
+        \alpha_{ci}\sum_{t\in T}
+        p_{ti}\frac{\phi_{x_c t}}{\theta_{ti}}
+        \right).
+        \]
+    \end{block}
+
+\end{frame}
+
+\begin{frame}{Стационарные условия: сходимость}
+    \small
+    \begin{block}{Теорема о сходимости локального блока}
+        Зафиксируем \(\Phi\), \(p(t)\) и позицию \(i\). Пусть
+        \(\alpha_{ci}^{(0)}>0\) для всех \(c\in C_i\) и
+        \(p(x_i\mid C_i)>0\) на всех итерациях. Тогда локальные
+        мультипликативные обновления не убывают по
+        \(\ell_i(\alpha_i)\):
+        \[
+            \ell_i(\alpha_i^{(k+1)})
+            \ge
+            \ell_i(\alpha_i^{(k)}).
+        \]
+        Последовательность \(\ell_i(\alpha_i^{(k)})\) сходится, а
+        каждая предельная точка \(\alpha_i^\ast\) удовлетворяет
+        KKT-условиям задачи
+        \[
+            \max_{\alpha_i\in\Delta_i}\ell_i(\alpha_i).
+        \]
+    \end{block}
+\end{frame}
+
+\begin{frame}{Экспериментальный протокол}
+    \begin{columns}[T]
+        \begin{column}{0.48\textwidth}
+            \begin{block}{Корпуса}
+                \begin{tabular}{@{}lrr@{}}
+                    \toprule
+                    Корпус & Train & Test\\
+                    \midrule
+                    20 Newsgroups & 11314 & 7532\\
+                    Yahoo! Answers & 1399999 & 59999\\
+                    AG News & 96000 & 7600\\
+                    \bottomrule
+                \end{tabular}
+            \end{block}
+        \end{column}
+        \begin{column}{0.48\textwidth}
+            \begin{block}{Сравнение}
+                \begin{itemize}
+                    \item \model
+                    \item \contextmodel
+                    \item \plsa{} в реализации BigARTM
+                    \item \bertopic{} с all-MiniLM-L6-v2
+                \end{itemize}
+            \end{block}
+        \end{column}
+    \end{columns}
+
+    \vspace{0.25cm}
+    Для внешнего сравнения используется не более \(10000\) обучающих и
+    \(3000\) тестовых документов на корпус. Основная метрика -- тестовая
+    перплексия; дополнительно оцениваются NPMI, время обучения и число
+    итераций до остановки.
+\end{frame}
+
+\begin{frame}{Сравнение моделей}
+    \centering
+    \scriptsize
+    \begin{tabular}{@{}llrrr@{}}
+        \toprule
+        Модель & Корпус & Test PPL & NPMI & Время, с\\
+        \midrule
+        \model & 20News & 383.53 & 0.174 & 29.65\\
+        \contextmodel & 20News & 638.54 & 0.177 & 2.58\\
+        \plsa & 20News & 4570.90 & 0.252 & 111.00\\
+        \bertopic & 20News & 2796.06 & 0.242 & 78.89\\
+        \midrule
+        \model & Yahoo & 245.93 & 0.097 & 19.18\\
+        \contextmodel & Yahoo & 403.82 & 0.100 & 1.58\\
+        \plsa & Yahoo & 2851.39 & 0.157 & 67.56\\
+        \bertopic & Yahoo & 2600.34 & 0.146 & 70.76\\
+        \midrule
+        \model & AG News & 294.70 & -0.009 & 8.72\\
+        \contextmodel & AG News & 474.93 & -0.015 & 0.94\\
+        \plsa & AG News & 16853.97 & 0.129 & 51.52\\
+        \bertopic & AG News & 3313.65 & 0.116 & 39.37\\
+        \bottomrule
+    \end{tabular}
+
+    \vspace{0.18cm}
+    \begin{block}{Интерпретация}
+        В данном эксперименте \model{} имеет наименьшую тестовую перплексию на
+        всех трех корпусах. При этом по NPMI верхних слов темы \plsa{} и
+        \bertopic{} остаются сильнее.
+    \end{block}
+\end{frame}
+
+\begin{frame}{Абляции}
+    \begin{columns}[T]
+        \begin{column}{0.5\textwidth}
+            \begin{block}{Обучение весов контекста}
+                Отключение обучения коэффициентов ухудшает перплексию:
+                \begin{center}
+                \small
+                \begin{tabular}{@{}lr@{}}
+                    20News & \(383.53\to 518.09\)\\
+                    Yahoo & \(245.93\to 597.32\)\\
+                    AG News & \(294.70\to 539.13\)
+                \end{tabular}
+                \end{center}
+            \end{block}
+            
+        \end{column}
+        \begin{column}{0.47\textwidth}
+            \begin{block}{Радиус окна}
+                При фиксированном числе тем широкий диапазон радиусов дает
+                близкую перплексию, но большие окна существенно увеличивают
+                время обучения.
+            \end{block}
+            
+        \end{column}
+    \end{columns}
+\end{frame}
+
+\begin{frame}{Выводы}
+    \begin{enumerate}
+        \item Обучаемые коэффициенты контекста позволяют адаптировать вклад
+        соседних позиций; в проведенных экспериментах это уменьшает тестовую
+        перплексию относительно фиксированной \contextmodel{}.
+        \item Тем не менее, NPMI ниже, чем у \plsa{} и \bertopic{}.
+    \end{enumerate}
+\end{frame}
+
+\end{document}
